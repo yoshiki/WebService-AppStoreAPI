@@ -5,11 +5,13 @@ use warnings;
 use Data::Dumper;
 use WebService::AppStoreAPI;
 
-my $app_ids = [ split /\s/, $ARGV[0] ];
-my $api = WebService::AppStoreAPI->new;
-warn Dumper $api->app_info( {
-    app_ids   => $app_ids,
-    countries => [ qw( jp ) ],
-    lang      => 9,
-    ident     => 'iphone',
+my $app_id = $ARGV[0];
+my $country = $ARGV[1] || 'jp';
+my $api = WebService::AppStoreAPI->new( {
+    app_id  => $app_id,
+    country => $country,
+    lang    => 9,
+    ident   => 'iphone',
 } );
+warn Dumper $api->app_info;
+warn Dumper $api->app_reviews;
