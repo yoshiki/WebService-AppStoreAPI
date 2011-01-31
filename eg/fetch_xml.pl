@@ -14,7 +14,5 @@ my $api = WebService::AppStoreAPI->new( {
     lang    => $lang,
     ident   => 'iphone',
 } );
-warn Dumper $api->app_info;
-warn Dumper $api->app_reviews;
-warn Dumper $api->genre_rank;
-warn Dumper $api->total_rank;
+my $url = $api->app_info_url( $app_id );
+print $api->fetch_xml( $url );

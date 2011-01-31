@@ -5,6 +5,7 @@ use LWP::UserAgent;
 use XML::XPath;
 use Data::Dumper;
 use Encode ();
+use URI;
 
 our $VERSION = '0.01';
 
@@ -13,46 +14,33 @@ our $BASE_URL   = 'http://ax.itunes.apple.com/WebObjects/MZStore.woa/wa/';
 
 sub new {
     my ( $class, $args ) = @_;
-    return bless $args, $class;
+    my $self = bless $args, $class;
+    my $countries = $self->countries( $self->{ country } );
+    $self->{ code } = $countries->{ code };
+    return $self;
 }
 
-sub ua {
-    my $self = shift;
-    unless ( $self->{ ua } ) {
-        my $ua = LWP::UserAgent->new;
-        $ua->timeout(30);
-        $ua->env_proxy;
-        $ua->agent( $USER_AGENT );
-        $self->{ ua } = $ua;
-    }
-    return $self->{ ua };
+sub _base_url {
+    my $app_id = shift;
+    my $u = URI->new( $BASE_URL . 'viewSoftware' );
+    $u->query_form( id => $app_id, mt => 8 );
+    return $u->as_string;
 }
 
-sub _get_value {
-    my ( $xp, $path, $node ) = @_;
-    return _utf8_off( $xp->findvalue( $path, $node )->string_value );
-}
-
-sub _utf8_off {
-    my $str = shift;
-    Encode::_utf8_off( $str );
-    return $str;
+sub app_info_url {
+    my ( $self, $app_id ) = @_;
+    my $xp = $self->xpath( _base_url( $app_id ) );
+    my $app_info_url = _get_value( $xp, '/plist/dict/dict/string[2]' );
+    die 'Cannot connect.' unless $app_info_url;
+    return $app_info_url;
 }
 
 sub app_info {
     my $self = shift;
     return $self->{ _app_info } if $self->{ _app_info };
 
-    my $app_id = $self->{ app_id };
-    my $lang = $self->{ lang };
-    my $country = $self->countries( $self->{ country } );
-    my $code = $country->{ code };
-
-    my $url = sprintf '%sviewSoftware?id=%s&mt=8', $BASE_URL, $app_id;
-    my $xp = $self->_get_xml( $url, $code, $lang );
-
-    my $app_url = _get_value( $xp, '/plist/dict/dict/string[2]' ) or return;
-    $xp = $self->_get_xml( $app_url, $code, $lang );
+    my $app_info_url = $self->app_info_url( $self->{ app_id } );
+    my $xp = $self->xpath( $app_info_url );
 
     my ( $node ) = $xp->find( '/Document' )->get_nodelist;
 
@@ -99,14 +87,14 @@ sub app_info {
     }
 
     $self->{ _app_info } = {
-        app_id     => $app_id,
+        app_id     => $self->{ app_id },
         app_name   => $app_name,
-        lang       => $lang,
+        country    => $self->{ country },
+        lang       => $self->{ lang },
         price      => $price,
         genre_id   => $genre_id,
         genre_name => $genre_name,
         artist_id  => $artist_id,
-        country    => $country,
         star       => { current => $current_star, all => $all_star },
     };
 
@@ -116,10 +104,10 @@ sub app_info {
 sub genre_rank {
     my $self = shift;
     my $app_info = $self->app_info;
-    my $url = $self->_rank_uri( $app_info->{ price },
+    my $url = $self->_rank_url( $app_info->{ price },
                                 $app_info->{ ident } || 'iphone' );
     $url .= '&genreId=' . $app_info->{ genre_id };
-    my $xp = $self->_get_xml( $url );
+    my $xp = $self->xpath( $url );
     my ( $node ) = $xp->find( '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView/HBoxView/VBoxView/VBoxView/View/VBoxView[2]/MatrixView/VBoxView/MatrixView' )->get_nodelist;
     for my $i ( 1..100 ) {
         my $buyParams = $xp->find( 'HBoxView[' . $i . ']/VBoxView/MatrixView/VBoxView/HBoxView/VBoxView[2]/HBoxView/VBoxView/Test/Test[2]/Buy/@buyParams', $node )->string_value;
@@ -131,9 +119,9 @@ sub genre_rank {
 sub total_rank {
     my $self = shift;
     my $app_info = $self->app_info;
-    my $url = $self->_rank_uri( $app_info->{ price },
+    my $url = $self->_rank_url( $app_info->{ price },
                                 $app_info->{ ident } || 'iphone' );
-    my $xp = $self->_get_xml( $url );
+    my $xp = $self->xpath( $url );
     my ( $node ) = $xp->find( '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView/HBoxView/VBoxView/VBoxView/View/VBoxView[2]/MatrixView/VBoxView/MatrixView' )->get_nodelist;
     for my $i ( 1..100 ) {
         my $buyParams = $xp->find( 'HBoxView[' . $i . ']/VBoxView/MatrixView/VBoxView/HBoxView/VBoxView[2]/HBoxView/VBoxView/Test/Test[2]/Buy/@buyParams', $node )->string_value;
@@ -142,27 +130,34 @@ sub total_rank {
     }
 }
 
-sub _rank_uri {
+sub _rank_url {
     my ( $self, $price, $ident ) = @_;
     # iphone 30:27, ipad 47:44
     my $popId = $price ? 30 : 27;
     $popId += 17 if $ident eq 'ipad';
-    my $url = $BASE_URL . 'viewTop?id=25209&popId='. $popId;
-    $url;
+    my $u = URI->new( $BASE_URL . 'viewTop' );
+    $u->query_form( popId => $popId, id => 25209 );
+    return $u->as_string;
+}
+
+sub _app_reviews_url {
+    my ( $app_id, $page ) = @_;
+    my %query_form = (
+        type         => 'Purple Software',
+        id           => $app_id,
+        sortOrdering => 1,
+    );
+    $query_form{ pageNumber } = $page if defined $page;
+    my $u = URI->new( $BASE_URL . 'viewContentsUserReviews' );
+    $u->query_form( %query_form );
+    return $u->as_string;
 }
 
 sub app_reviews {
     my $self = shift;
     my $app_info = $self->app_info;
-#    my $url = $BASE_URL
-#            . 'viewContentsUserReviews?pageNumber=0&type=Purple+Software&id='
-#            . $app_info->{ app_id }
-#            . '&sortOrdering=1';
-    my $url = $BASE_URL
-            . 'viewContentsUserReviews?type=Purple+Software&id='
-            . $app_info->{ app_id }
-            . '&sortOrdering=1';
-    my $xp = $self->_get_xml( $url );
+    my $url = _app_reviews_url( $app_info->{ app_id } );
+    my $xp = $self->xpath( $url );
     my ( $review_root ) = $xp->find(
         '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView[1]/VBoxView'
     )->get_nodelist;
@@ -177,8 +172,8 @@ sub app_reviews {
         my $rate    = _get_value( $node, 'HBoxView[1]/HBoxView/HBoxView[1]/@alt' );
         my $name    = _get_value( $node, 'HBoxView[2]/TextView/SetFontStyle/GotoURL' );
         my $ver_dt  = _get_value( $node, 'HBoxView[2]/TextView/SetFontStyle' );
-        my ( $dt )  = $ver_dt =~ m/(\d{2}\-(?:jan|feb|may|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\-\d{4})/is;
-        my ( $ver ) = $ver_dt =~ m/バージョン[^\d]*([\d\.]+)/is;
+        my ( $dt )  = $ver_dt =~ m/(\d{2}\-(?:jan|feb|may|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\-\d{4})/is; # jp only
+        my ( $ver ) = $ver_dt =~ m/バージョン[^\d]*([\d\.]+)/is; # jp only
         my $body   = _get_value( $node, 'TextView/SetFontStyle' );
         $name =~ s/^\s*([^\s]*)\s*$/$1/;
         push @reviews, {
@@ -188,47 +183,46 @@ sub app_reviews {
             rate   => $rate || undef,
             dt     => $dt || undef,
             ver    => $ver || undef,
-#            ver_dt => $ver_dt || undef,
+            ver_dt => $ver_dt || undef,
         };
     }
     return \@reviews;
 }
 
-sub _get_review_message {
+sub _utf8_off {
+    my $str = shift;
+    Encode::_utf8_off( $str );
+    return $str;
+}
+
+sub _get_value {
+    my ( $xp, $path, $node ) = @_;
+    return _utf8_off( $xp->findvalue( $path, $node )->string_value );
+}
+
+sub xpath {
     my $self = shift;
-
+    my $xml = $self->fetch_xml( @_ );
+    return XML::XPath->new( xml => $xml );
 }
 
-sub _get_xml {
-    my ( $self, $url, $code, $lang ) = @_;
-    if ( !$code || !$lang ) {
-        $code = $self->app_info->{ country }->{ code };
-        $lang = $self->app_info->{ lang };
-    }
-    $self->ua->default_header( 'X-Apple-Store-Front' => "${code}-${lang}" );
-    my $res = $self->ua->get( $url );
-    unless ( $res->is_success ) {
-        die 'request failed: ', $url, ': ', $res->status_line;
-    }
-    unless ( $res->headers->header('Content-Type') =~ m|/xml| ) {
-        die 'content is not xml: ', $url, ': ', $res->headers->header('Content-Type');
-    }
-    return XML::XPath->new( xml => $res->content );
-}
-
-sub _get_xml2 {
+sub fetch_xml {
     my ( $self, $url ) = @_;
-    my $code = $self->app_info->{ country }->{ code };
-    my $lang = $self->app_info->{ lang };
-    $self->ua->default_header( 'X-Apple-Store-Front' => "${code}-${lang}" );
-    my $res = $self->ua->get( $url );
+    my $ua = LWP::UserAgent->new;
+    $ua->timeout(30);
+    $ua->env_proxy;
+    $ua->agent( $USER_AGENT );
+    $ua->default_header(
+        'X-Apple-Store-Front' => $self->{ code } . '-' . $self->{ lang },
+    );
+    my $res = $ua->get( $url );
     unless ( $res->is_success ) {
-        die 'request failed: ', $url, ': ', $res->status_line;
+        die 'Request failed: ', $url, ': ', $res->status_line;
     }
     unless ( $res->headers->header('Content-Type') =~ m|/xml| ) {
-        die 'content is not xml: ', $url, ': ', $res->headers->header('Content-Type');
+        die 'Invalid Content-Type: ', $url, ': ', $res->headers->header('Content-Type');
     }
-    print $res->content;
+    return $res->content;
 }
 
 our $Countries;
