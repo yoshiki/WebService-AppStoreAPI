@@ -13,7 +13,7 @@ my $api = WebService::AppStoreAPI->new( {
     lang    => 9,
     ident   => 'iphone',
 } );
-warn Dumper $api->app_info;
+#warn Dumper $api->app_info;
 warn Dumper $api->app_reviews;
-warn Dumper $api->genre_rank;
-warn Dumper $api->total_rank;
+#warn Dumper $api->genre_rank;
+#warn Dumper $api->total_rank;

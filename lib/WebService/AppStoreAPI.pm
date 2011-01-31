@@ -154,25 +154,41 @@ sub _rank_uri {
 sub app_reviews {
     my $self = shift;
     my $app_info = $self->app_info;
+#    my $url = $BASE_URL
+#            . 'viewContentsUserReviews?pageNumber=0&type=Purple+Software&id='
+#            . $app_info->{ app_id }
+#            . '&sortOrdering=1';
     my $url = $BASE_URL
-            . 'viewContentsUserReviews?pageNumber=0&type=Purple+Software&id='
+            . 'viewContentsUserReviews?type=Purple+Software&id='
             . $app_info->{ app_id }
             . '&sortOrdering=1';
     my $xp = $self->_get_xml( $url );
     my ( $review_root ) = $xp->find(
         '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView[1]/VBoxView'
     )->get_nodelist;
+    my $pager = $review_root->find( './HBoxView[2]/TextView/SetFontStyle' )->string_value;
+    $pager = _utf8_off( $pager );
+    my ( $total_page, $current_page ) = $pager =~ m/^(\d+)ページ中の(\d+)ページ$/;
+    #XXX do {} while ();
     my @review_nodes = $review_root->find( './VBoxView' )->get_nodelist;
     my @reviews;
     for my $node ( @review_nodes ) {
-        my $title = _get_value( $node, 'HBoxView[1]/TextView/SetFontStyle' );
-        my $name = _get_value( $node, 'HBoxView[2]/TextView/SetFontStyle/GotoURL' );
-        my $body  = _get_value( $node, 'TextView/SetFontStyle' );
+        my $title   = _get_value( $node, 'HBoxView[1]/TextView/SetFontStyle' );
+        my $rate    = _get_value( $node, 'HBoxView[1]/HBoxView/HBoxView[1]/@alt' );
+        my $name    = _get_value( $node, 'HBoxView[2]/TextView/SetFontStyle/GotoURL' );
+        my $ver_dt  = _get_value( $node, 'HBoxView[2]/TextView/SetFontStyle' );
+        my ( $dt )  = $ver_dt =~ m/(\d{2}\-(?:jan|feb|may|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\-\d{4})/is;
+        my ( $ver ) = $ver_dt =~ m/バージョン[^\d]*([\d\.]+)/is;
+        my $body   = _get_value( $node, 'TextView/SetFontStyle' );
         $name =~ s/^\s*([^\s]*)\s*$/$1/;
         push @reviews, {
-            title => $title || undef,
-            name  => $name  || undef,
-            boddy => $body  || undef,
+            title  => $title || undef,
+            name   => $name || undef,
+            boddy  => $body || undef,
+            rate   => $rate || undef,
+            dt     => $dt || undef,
+            ver    => $ver || undef,
+#            ver_dt => $ver_dt || undef,
         };
     }
     return \@reviews;
@@ -198,6 +214,21 @@ sub _get_xml {
         die 'content is not xml: ', $url, ': ', $res->headers->header('Content-Type');
     }
     return XML::XPath->new( xml => $res->content );
+}
+
+sub _get_xml2 {
+    my ( $self, $url ) = @_;
+    my $code = $self->app_info->{ country }->{ code };
+    my $lang = $self->app_info->{ lang };
+    $self->ua->default_header( 'X-Apple-Store-Front' => "${code}-${lang}" );
+    my $res = $self->ua->get( $url );
+    unless ( $res->is_success ) {
+        die 'request failed: ', $url, ': ', $res->status_line;
+    }
+    unless ( $res->headers->header('Content-Type') =~ m|/xml| ) {
+        die 'content is not xml: ', $url, ': ', $res->headers->header('Content-Type');
+    }
+    print $res->content;
 }
 
 our $Countries;
