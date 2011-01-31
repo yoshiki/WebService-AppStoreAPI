@@ -15,3 +15,5 @@ my $api = WebService::AppStoreAPI->new( {
 } );
 warn Dumper $api->app_info;
 warn Dumper $api->app_reviews;
+warn Dumper $api->genre_rank;
+warn Dumper $api->total_rank;

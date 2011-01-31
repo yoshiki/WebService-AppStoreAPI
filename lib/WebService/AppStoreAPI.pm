@@ -120,9 +120,12 @@ sub genre_rank {
                                 $app_info->{ ident } || 'iphone' );
     $url .= '&genreId=' . $app_info->{ genre_id };
     my $xp = $self->_get_xml( $url );
-    (my $salableAdamId = _get_value( $xp, '//Buy/@buyParams' ))
-        =~ s/^.*salableAdamId=(\d+).*$/$1/;
-    return $salableAdamId;
+    my ( $node ) = $xp->find( '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView/HBoxView/VBoxView/VBoxView/View/VBoxView[2]/MatrixView/VBoxView/MatrixView' )->get_nodelist;
+    for my $i ( 1..100 ) {
+        my $buyParams = $xp->find( 'HBoxView[' . $i . ']/VBoxView/MatrixView/VBoxView/HBoxView/VBoxView[2]/HBoxView/VBoxView/Test/Test[2]/Buy/@buyParams', $node )->string_value;
+        my ( $app_id ) = $buyParams =~ m/^.*salableAdamId=(\d+).*$/;
+        return $i if $app_id == $app_info->{ app_id };
+    }
 }
 
 sub total_rank {
@@ -131,9 +134,12 @@ sub total_rank {
     my $url = $self->_rank_uri( $app_info->{ price },
                                 $app_info->{ ident } || 'iphone' );
     my $xp = $self->_get_xml( $url );
-    (my $salableAdamId = _get_value( $xp, '//Buy/@buyParams' ))
-        =~ s/^.*salableAdamId=(\d+).*$/$1/;
-    return $salableAdamId;
+    my ( $node ) = $xp->find( '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView/HBoxView/VBoxView/VBoxView/View/VBoxView[2]/MatrixView/VBoxView/MatrixView' )->get_nodelist;
+    for my $i ( 1..100 ) {
+        my $buyParams = $xp->find( 'HBoxView[' . $i . ']/VBoxView/MatrixView/VBoxView/HBoxView/VBoxView[2]/HBoxView/VBoxView/Test/Test[2]/Buy/@buyParams', $node )->string_value;
+        my ( $app_id ) = $buyParams =~ m/^.*salableAdamId=(\d+).*$/;
+        return $i if $app_id == $app_info->{ app_id };
+    }
 }
 
 sub _rank_uri {
@@ -153,7 +159,9 @@ sub app_reviews {
             . $app_info->{ app_id }
             . '&sortOrdering=1';
     my $xp = $self->_get_xml( $url );
-    my ( $review_root ) = $xp->find( '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView[1]/VBoxView' )->get_nodelist;
+    my ( $review_root ) = $xp->find(
+        '/Document/View/ScrollView/VBoxView/View/MatrixView/VBoxView[1]/VBoxView'
+    )->get_nodelist;
     my @review_nodes = $review_root->find( './VBoxView' )->get_nodelist;
     my @reviews;
     for my $node ( @review_nodes ) {
@@ -189,6 +197,7 @@ sub _get_xml {
     unless ( $res->headers->header('Content-Type') =~ m|/xml| ) {
         die 'content is not xml: ', $url, ': ', $res->headers->header('Content-Type');
     }
+    print $res->content;
     return XML::XPath->new( xml => $res->content );
 }
 
