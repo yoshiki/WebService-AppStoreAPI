@@ -197,7 +197,6 @@ sub _get_xml {
     unless ( $res->headers->header('Content-Type') =~ m|/xml| ) {
         die 'content is not xml: ', $url, ': ', $res->headers->header('Content-Type');
     }
-    print $res->content;
     return XML::XPath->new( xml => $res->content );
 }
 
